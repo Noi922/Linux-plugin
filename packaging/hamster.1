@@ -1,0 +1,57 @@
+.TH HAMSTER 1 "2026" "hamster" "Benutzerbefehle"
+.SH NAME
+hamster \- freundliche Shell mit klaren Fehlermeldungen und Vervollständigung
+.SH ÜBERSICHT
+.B hamster
+.RB [ \-l ]
+.br
+.B hamster \-\-try
+.I BEFEHL
+.br
+.B hamster
+.RI [ bash-Argumente ...]
+.SH BESCHREIBUNG
+.B hamster
+ist eine interaktive Shell im Stil von fish. Beim Tippen werden Befehle eingefärbt
+(rot = existiert nicht), ein grauer Vorschlag aus dem Verlauf erscheint, und Tab
+vervollständigt Befehle, Dateien, Variablen und Unterbefehle.
+.PP
+Fehler werden vor dem Ausführen mit ^^^ an der genauen Stelle markiert. Nach dem
+Ausführen erklärt hamster Fehlermeldungen: bei Python, gcc/clang und Shell-Skripten
+mit Datei, Zeile und Code-Ausschnitt.
+.PP
+Befehle laufen in echter bash. ~/.profile, ~/.bashrc und ~/.hamsterrc werden geladen.
+Wird hamster nicht interaktiv oder mit Argumenten aufgerufen (z. B. \fB\-c\fR, ein Skript,
+eine Pipe, ssh, scp, rsync), wird direkt bash ausgeführt.
+.SH TASTEN
+.TP
+.B Tab
+vervollständigen
+.TP
+.BR → " oder " Strg+E
+grauen Vorschlag übernehmen
+.TP
+.B Strg+R
+im Verlauf suchen
+.TP
+.B Strg+Z
+Programm anhalten (weiter mit \fBfg\fR oder \fBbg\fR, Liste mit \fBjobs\fR)
+.SH EINGEBAUTE BEFEHLE
+help, history, reload, cd, exit, jobs, fg, bg
+.SH DATEIEN
+.TP
+.I ~/.hamsterrc
+eigene Einstellungen (bash-Syntax)
+.TP
+.I ~/.hamster_history
+Verlauf
+.SH UMGEBUNG
+.TP
+.B HAMSTER_NO_BASHRC=1
+~/.bashrc nicht laden
+.TP
+.B HAMSTER_QUIET=1
+keine Begrüßung
+.SH SIEHE AUCH
+.BR bash (1),
+.BR chsh (1)

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>hamster apt-Repository</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#666;--code:#f3f3f3}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--fg:#eee;--mut:#aaa;--code:#262626}}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 16px}
+pre{background:var(--code);padding:.8rem 1rem;border-radius:8px;overflow-x:auto}p.m{color:var(--mut)}
+</style></head><body>
+<h1>🐹 hamster</h1>
+<p>Freundliche Shell im Stil von fish: zeigt klar, wo der Fehler ist, und vervollständigt, was du tippst.</p>
+<h2>Installieren (Ubuntu &amp; Debian)</h2>
+<pre>curl -fsSL https://noi922.github.io/Linux-plugin/setup.sh | sudo sh</pre>
+<p class="m">Ohne curl: <code>wget -qO- https://noi922.github.io/Linux-plugin/setup.sh | sudo sh</code></p>
+<p>Danach installierst und aktualisierst du hamster ganz normal mit apt:</p>
+<pre>sudo apt install hamster
+sudo apt update &amp;&amp; sudo apt upgrade</pre>
+<p><a href="https://github.com/Noi922/Linux-plugin">Quellcode auf GitHub</a></p>
+</body></html>

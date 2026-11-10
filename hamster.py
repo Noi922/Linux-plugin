@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""klar – eine freundliche Shell im Stil von fish.
+"""hamster – eine freundliche Shell im Stil von fish.
 
 * Farbige Syntax-Hervorhebung beim Tippen (rot = Befehl existiert nicht)
 * Grauer Vorschlag aus dem Verlauf (→ oder Strg+E zum Übernehmen)
@@ -7,32 +7,66 @@
 * Fehler werden VOR dem Ausführen geprüft und mit ^^^ genau markiert
 * Nach dem Ausführen wird die Fehlermeldung erklärt (Datei, Zeile, Ursache)
 """
-import difflib
 import os
-import re
-import shlex
-import shutil
-import signal
-import socket
-import subprocess
 import sys
-import tempfile
-import threading
-from dataclasses import dataclass
 
-from prompt_toolkit import PromptSession
-from prompt_toolkit.auto_suggest import AutoSuggest, AutoSuggestFromHistory, Suggestion
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
-from prompt_toolkit.formatted_text import ANSI
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.lexers import Lexer
-from prompt_toolkit.styles import Style
+__version__ = "1.0"
+
+
+def _fallback_to_bash(args, login=False):
+    os.execvp("bash", ["bash"] + (["-l"] if login else []) + list(args))
+
+
+# Wird hamster von anderen Programmen aufgerufen (ssh host befehl, scp, rsync, cron,
+# VS Code, "hamster -c ...", "hamster skript.sh", Pipes), übernimmt echte bash.
+# So bleibt hamster als Standard-Shell mit allen Programmen kompatibel.
+_ARGS = sys.argv[1:]
+LOGIN = sys.argv[0].startswith("-") or "SHLVL" not in os.environ
+if "-l" in _ARGS or "--login" in _ARGS:
+    LOGIN = True
+_REST = [a for a in _ARGS if a not in ("-l", "--login", "-i")]
+if _REST[:1] in (["--version"], ["-v"]):
+    print("hamster " + __version__)
+    sys.exit(0)
+if _REST[:1] in (["--help"], ["-h"]):
+    print("hamster – interaktive Shell. Ohne Argumente starten. Alles andere (z. B. -c BEFEHL, "
+          "SKRIPT) wird an bash weitergegeben.\n  --try BEFEHL   Befehl mit hamster-Fehlererklärung ausführen")
+    sys.exit(0)
+if (_REST and _REST[0] != "--try") or (not _REST and not (sys.stdin.isatty() and sys.stdout.isatty())):
+    _fallback_to_bash(_REST, LOGIN)
+
+try:
+    import atexit
+    import difflib
+    import fcntl
+    import pty
+    import re
+    import shlex
+    import shutil
+    import signal
+    import socket
+    import subprocess
+    import tempfile
+    import termios
+    import threading
+    from dataclasses import dataclass
+
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.auto_suggest import AutoSuggest, AutoSuggestFromHistory, Suggestion
+    from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit.formatted_text import ANSI
+    from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.lexers import Lexer
+    from prompt_toolkit.styles import Style
+except ImportError as _e:  # Sicherheitsnetz: niemals ohne Shell dastehen
+    sys.stderr.write(f"hamster: {_e} – starte stattdessen bash. "
+                     "(Lösung: sudo apt install python3-prompt-toolkit)\n")
+    _fallback_to_bash([], LOGIN)
 
 HOME = os.path.expanduser("~")
-HISTFILE = os.path.join(HOME, ".klar_history")
-RCFILE = os.path.join(HOME, ".klarrc")
+HISTFILE = os.path.join(HOME, ".hamster_history")
+RCFILE = os.path.join(HOME, ".hamsterrc")
 
 # ───────────────────────────── Farben ─────────────────────────────
 R, G, Y, B, M, C, GR = "\033[31m", "\033[32m", "\033[33m", "\033[34m", "\033[35m", "\033[36m", "\033[90m"
@@ -47,13 +81,23 @@ source suspend test times trap true type typeset ulimit umask unalias unset wait
 KEYWORDS = set("if then else elif fi for while until do done case esac in select function time { } ! [[ ]]".split())
 CMD_AFTER = {"do", "then", "else", "elif", "while", "until", "if", "!", "{", "time",
              "sudo", "nohup", "exec", "command", "builtin", "nice", "watch", "env", "xargs", "doas"}
+WRAPPER_ARG_OPTS = {
+    "sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "-R"},
+    "doas": {"-u", "-C"}, "nice": {"-n"}, "env": {"-u", "-C", "-S"},
+    "xargs": {"-I", "-n", "-P", "-d", "-a", "-E", "-L", "-s"}, "watch": {"-n", "--interval"},
+}
 OPS = ["&&", "||", ">>", "2>&1", "&>", "2>", "|&", "|", ";", "&", ">", "<", "(", ")"]
 CMD_OPS = {"&&", "||", "|", "|&", ";", "&", "("}
 REDIR_OPS = {">", ">>", "<", "2>", "&>"}
-# Programme, die volle Kontrolle über das Terminal brauchen → stderr nicht mitlesen
-INTERACTIVE = set("vim vi nvim nano emacs less more man top htop btop ssh mc tmux screen "
-                  "python python3 ipython node bash zsh fish sh su sudo mysql psql sqlite3 "
-                  "git watch ranger fzf".split())
+# Vollbild-/REPL-Programme: deren stderr wird nicht mitgelesen, sie bekommen das Terminal 1:1.
+# (Alle anderen bekommen stderr über ein Pseudo-Terminal → Farben & Fortschrittsbalken bleiben.)
+INTERACTIVE = set("vim vi nvim view vimdiff nano pico micro emacs joe mcedit less more most man info "
+                  "top htop btop atop nmon iotop glances nvtop mc ranger nnn lf yazi tmux screen zellij byobu "
+                  "ssh mosh telnet ftp sftp su login python python2 python3 ipython bpython node irb ghci lua "
+                  "bash zsh fish sh dash ksh mysql mariadb psql sqlite3 redis-cli mongo mongosh fzf "
+                  "whiptail dialog nmtui alsamixer cfdisk fdisk parted gdisk ncdu tig lazygit lazydocker "
+                  "k9s watch minicom screen cmus mutt neomutt w3m lynx newsboat weechat irssi gdb".split())
+REPL_WITH_SCRIPT = {"python", "python2", "python3", "node", "bash", "sh", "zsh", "dash", "lua", "irb"}
 
 SUBCOMMANDS = {
     "git": "add bisect branch checkout cherry-pick clone commit diff fetch grep init log merge mv pull push "
@@ -131,50 +175,75 @@ def tokenize(line):
         i = min(i, n)
         toks.append(Tok(line[start:i], start, i, "word", unclosed=unclosed))
 
+    # Funktionsdefinition "name() {" bzw. "function name" ist kein Befehlsaufruf
+    fdefs = {id(toks[k]) for k in range(len(toks) - 2)
+             if toks[k].kind == "word" and toks[k + 1].text == "(" and toks[k + 2].text == ")"}
     expect_cmd, skip_rest, after_redir = True, False, False
+    prev_word = last_word = wrapper = None
+    skip_next = False
     for t in toks:
+        if id(t) in fdefs:
+            t.kind, expect_cmd = "funcdef", True
+            continue
         if t.kind == "op":
-            if t.text in CMD_OPS:
+            if t.text in CMD_OPS or t.text == ")":
                 expect_cmd, skip_rest = True, False
             after_redir = t.text in REDIR_OPS
             continue
         if t.kind != "word":
             continue
+        last_word, prev_word = prev_word, t.text
         if after_redir:
             after_redir = False
             continue
         if skip_rest:
             continue
+        if last_word == "function" and expect_cmd:
+            t.kind = "funcdef"   # "function name {" → name ist neu, kein Aufruf
+            continue
         if expect_cmd:
             if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", t.text):
                 t.kind = "assign"
                 continue
-            if t.text.startswith("-") and toks and t is not toks[0]:
-                continue  # Option von sudo/nice usw.
+            if t.text.startswith("-") and wrapper:
+                # Option von sudo/nice/env ...; manche haben einen Wert dahinter (sudo -u root)
+                if t.text in WRAPPER_ARG_OPTS.get(wrapper, ()):
+                    skip_next = True
+                continue
+            if skip_next:
+                skip_next = False
+                continue
             t.cmdpos = True
-            if t.text in ("for", "case", "select", "function"):
+            wrapper = os.path.basename(t.text) if t.text in CMD_AFTER else None
+            if t.text in ("for", "case", "select"):
                 skip_rest = True
-            expect_cmd = t.text in CMD_AFTER
+            expect_cmd = t.text in CMD_AFTER or t.text == "function"
     return toks
 
 
 # ─────────────────────────── Umgebung ─────────────────────────────
 class Env:
+    """Merkt sich Aliase und Funktionen der dahinterliegenden bash."""
+
     def __init__(self):
         self.aliases = {}
+        self.functions = set()
         self.last_rc = 0
         self._cmds = None
-        self.load_aliases()
 
-    def load_aliases(self):
-        self.aliases = {"ll": "ls -alF", "la": "ls -A", "l": "ls -CF"}
-        if os.path.exists(RCFILE):
-            for m in re.finditer(r"^\s*alias\s+([\w.-]+)=(['\"]?)(.*?)\2\s*$", open(RCFILE).read(), re.M):
-                self.aliases[m.group(1)] = m.group(3)
+    def parse_defs(self, text):
+        aliases = {}
+        for m in re.finditer(r"^alias ([^=\s]+)='(.*)'$", text, re.M):
+            aliases[m.group(1)] = m.group(2).replace("'\\''", "'")
+        funcs = set(re.findall(r"^([^\s=()]+) \(\) $", text, re.M))
+        if aliases != self.aliases or funcs != self.functions:
+            self._cmds = None
+        self.aliases, self.functions = aliases, funcs
 
     def commands(self):
         if self._cmds is None:
-            cmds = set(BASH_BUILTINS) | set(self.aliases) | {"history", "help", "reload"}
+            cmds = (set(BASH_BUILTINS) | set(self.aliases) | self.functions
+                    | {"history", "help", "reload", "jobs", "fg", "bg"})
             for d in os.environ.get("PATH", "").split(":"):
                 try:
                     for f in os.listdir(d):
@@ -199,7 +268,7 @@ ENV = Env()
 
 
 # ─────────────────────── Hervorhebung beim Tippen ─────────────────
-class KlarLexer(Lexer):
+class HamsterLexer(Lexer):
     def lex_document(self, document):
         line = document.text
 
@@ -212,6 +281,8 @@ class KlarLexer(Lexer):
                     style = "class:op"
                 elif t.kind == "comment":
                     style = "class:comment"
+                elif t.kind == "funcdef":
+                    style = "class:cmd"
                 elif t.kind == "assign":
                     style = "class:var"
                 elif t.unclosed >= 0:
@@ -260,7 +331,7 @@ def path_completions(word, only_dirs=False):
         yield shown, ("Ordner" if is_dir else "Datei")
 
 
-class KlarCompleter(Completer):
+class HamsterCompleter(Completer):
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         toks = [t for t in tokenize(text) if t.kind != "comment"]
@@ -310,10 +381,10 @@ class KlarCompleter(Completer):
             yield Completion(shown, -len(word), display_meta=meta)
 
 
-class KlarSuggest(AutoSuggest):
+class HamsterSuggest(AutoSuggest):
     """Erst aus dem Verlauf, sonst die eindeutige Vervollständigung (wie fish)."""
     hist = AutoSuggestFromHistory()
-    comp = KlarCompleter()
+    comp = HamsterCompleter()
 
     def get_suggestion(self, buffer, document):
         s = self.hist.get_suggestion(buffer, document)
@@ -392,8 +463,9 @@ def precheck(line):
                 box(f"Syntaxfehler: nach '{t.text}' fehlt ein Befehl", line, t.start, t.end,
                     ["Die Zeile endet mit einem Operator – da muss noch etwas kommen."])
                 return False
+    defined_here = {t.text for t in toks if t.kind == "funcdef"}
     for t in toks:
-        if t.cmdpos and not ENV.exists(t.text):
+        if t.cmdpos and t.text not in defined_here and not ENV.exists(t.text):
             word = t.text
             lines = []
             if "/" in word:
@@ -537,22 +609,204 @@ def explain_exit(rc):
     return None
 
 
+# ───────────────────────── bash im Hintergrund ────────────────────
+# Jeder Befehl läuft in echter bash. Danach werden Ordner, Umgebungsvariablen,
+# Aliase, Funktionen und Shell-Variablen gesichert und beim nächsten Befehl
+# wieder geladen – so verhält sich alles wie in einer durchgehenden bash-Sitzung.
+STATE_DIR = tempfile.mkdtemp(prefix="hamster-")
+DEFS = os.path.join(STATE_DIR, "defs")
+atexit.register(shutil.rmtree, STATE_DIR, True)
+_run_counter = [0]
+
+DUMP = r'''
+{ pwd > "$__hs/cwd"; env -0 > "$__hs/env"
+  { alias -p
+    for __f in $(compgen -A function); do [[ $__f == _* ]] || declare -f "$__f"; done
+    for __v in $(compgen -v); do
+      case $__v in BASH*|SHELLOPTS|EUID|UID|PPID|GROUPS|FUNCNAME|PIPESTATUS|RANDOM|SRANDOM|SECONDS|\
+LINENO|HISTCMD|EPOCH*|COMP*|DIRSTACK|_|__*|SHLVL|OLDPWD|PWD|COLUMNS|LINES|OPT*|IFS|PS[0-4]|\
+PROMPT_COMMAND|HOSTNAME|HOSTTYPE|MACHTYPE|OSTYPE|HIST*|MAILCHECK|TERM|READLINE*) continue;; esac
+      __a=${!__v@a}; [[ $__a == *[rx]* ]] && continue
+      declare -p "$__v"
+    done
+  } > "$__hs/defs"
+} 2>/dev/null
+'''
+
+DEFAULT_ALIASES = r'''
+alias ls >/dev/null 2>&1 || alias ls='ls --color=auto'
+alias grep >/dev/null 2>&1 || alias grep='grep --color=auto'
+alias ll >/dev/null 2>&1 || alias ll='ls -alF'
+alias la >/dev/null 2>&1 || alias la='ls -A'
+alias l >/dev/null 2>&1 || alias l='ls -CF'
+'''
+
+
+def new_run_dir():
+    _run_counter[0] += 1
+    d = os.path.join(STATE_DIR, str(_run_counter[0]))
+    os.mkdir(d)
+    return d
+
+
+def apply_state(run_dir):
+    """Übernimmt Ordner, Variablen und Definitionen aus einem abgeschlossenen Lauf."""
+    try:
+        cwd = open(os.path.join(run_dir, "cwd"), errors="replace").read().rstrip("\n")
+        envdata = open(os.path.join(run_dir, "env"), "rb").read()
+        if envdata:
+            new_env = dict(kv.decode(errors="replace").split("=", 1)
+                           for kv in envdata.split(b"\0") if b"=" in kv)
+            for k in ("SHLVL", "_", "BASH_EXECUTION_STRING"):
+                new_env.pop(k, None)
+            new_env["SHLVL"] = os.environ.get("SHLVL", "1")
+            if new_env.get("PATH") != os.environ.get("PATH"):
+                ENV._cmds = None
+            os.environ.clear()
+            os.environ.update(new_env)
+        if cwd and os.path.isdir(cwd):
+            os.chdir(cwd)
+        defs = os.path.join(run_dir, "defs")
+        if os.path.getsize(defs) > 0:
+            os.replace(defs, DEFS)
+            ENV.parse_defs(open(DEFS, errors="replace").read())
+    except OSError:
+        pass
+    finally:
+        shutil.rmtree(run_dir, True)
+
+
+def load_startup(verbose=False):
+    """Lädt ~/.profile (Login), ~/.bashrc und ~/.hamsterrc einmal in bash und übernimmt alles."""
+    run_dir = new_run_dir()
+    script = (f"__hs={shlex.quote(run_dir)}\nshopt -s expand_aliases\n{DEFAULT_ALIASES}"
+              f"[ -f ~/.hamsterrc ] && source ~/.hamsterrc\n{DUMP}")
+    use_bashrc = os.environ.get("HAMSTER_NO_BASHRC") != "1"
+    cmd = ["bash"] + (["-l"] if LOGIN and use_bashrc else []) + (["-i"] if use_bashrc else []) + ["-c", script]
+    try:
+        subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=10, start_new_session=True)
+    except subprocess.TimeoutExpired:
+        if verbose:
+            print(f"{Y}~/.bashrc braucht zu lange – übersprungen.{RST}")
+    apply_state(run_dir)
+
+
+# ───────────────────────── Jobs (Strg+Z, fg, bg) ──────────────────
+TTY = sys.stdin.fileno() if sys.stdin.isatty() else None
+JOBS = []  # dicts: id, pid, cmd, stopped
+
+
+def give_terminal(pgid):
+    if TTY is not None:
+        try:
+            os.tcsetpgrp(TTY, pgid)
+        except OSError:
+            pass
+
+
+def wait_fg(pid):
+    """Wartet auf den Vordergrund-Prozess. Gibt (exit_code, gestoppt) zurück."""
+    try:
+        while True:
+            try:
+                _, st = os.waitpid(pid, os.WUNTRACED)
+            except ChildProcessError:
+                return 0, False
+            except InterruptedError:
+                continue
+            if os.WIFSTOPPED(st):
+                sig = os.WSTOPSIG(st)
+                if sig in (signal.SIGTTIN, signal.SIGTTOU):
+                    # Kind war schneller als die Terminal-Übergabe → nochmal übergeben
+                    give_terminal(pid)
+                    try:
+                        os.killpg(pid, signal.SIGCONT)
+                    except OSError:
+                        pass
+                    continue
+                return 128 + sig, True
+            if os.WIFEXITED(st):
+                return os.WEXITSTATUS(st), False
+            if os.WIFSIGNALED(st):
+                return 128 + os.WTERMSIG(st), False
+    finally:
+        give_terminal(os.getpgrp())
+
+
+def add_job(pid, cmd):
+    jid = max([j["id"] for j in JOBS], default=0) + 1
+    JOBS.append({"id": jid, "pid": pid, "cmd": cmd, "stopped": True})
+    print(f"\n{Y}[{jid}] angehalten:{RST} {cmd}   {GR}→ weiter mit {BOLD}fg{RST}{GR}, im Hintergrund mit {BOLD}bg{RST}")
+
+
+def reap_jobs():
+    for j in list(JOBS):
+        try:
+            pid, st = os.waitpid(j["pid"], os.WNOHANG)
+        except ChildProcessError:
+            JOBS.remove(j)
+            continue
+        if pid:
+            rc = os.WEXITSTATUS(st) if os.WIFEXITED(st) else 128 + os.WTERMSIG(st)
+            col = G if rc == 0 else R
+            print(f"{col}[{j['id']}] fertig (Exit-Code {rc}):{RST} {j['cmd']}")
+            JOBS.remove(j)
+
+
+def find_job(argv):
+    if not JOBS:
+        box("Keine Jobs", None, lines=[f"Es gibt keine angehaltenen Programme. ({BOLD}Strg+Z{RST} hält eins an.)"])
+        return None
+    if len(argv) < 2:
+        return JOBS[-1]
+    n = argv[1].lstrip("%")
+    j = next((j for j in JOBS if str(j["id"]) == n), None)
+    if not j:
+        box(f"Job {argv[1]} gibt es nicht", None, lines=["Vorhanden: " + ", ".join(f"[{j['id']}] {j['cmd']}" for j in JOBS)])
+    return j
+
+
 # ───────────────────────── Ausführen ──────────────────────────────
 def run_builtin(argv):
     cmd = argv[0]
     if cmd == "exit":
         sys.exit(int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else ENV.last_rc)
     if cmd == "reload":
-        ENV.load_aliases()
+        load_startup(verbose=True)
         ENV._cmds = None
-        print(f"{G}~/.klarrc neu geladen.{RST}")
+        print(f"{G}~/.bashrc und ~/.hamsterrc neu geladen.{RST}")
         return 0
     if cmd == "help":
         print(__doc__)
         print(f"Tasten: {BOLD}Tab{RST} vervollständigen · {BOLD}→ / Strg+E{RST} grauen Vorschlag annehmen · "
-              f"{BOLD}Alt+→{RST} ein Wort annehmen · {BOLD}Strg+R{RST} im Verlauf suchen\n"
-              f"Eigene Aliase und Einstellungen: {BOLD}~/.klarrc{RST} (bash-Syntax), danach {BOLD}reload{RST}")
+              f"{BOLD}Alt+→{RST} ein Wort annehmen · {BOLD}Strg+R{RST} im Verlauf suchen · "
+              f"{BOLD}Strg+Z{RST} Programm anhalten ({BOLD}fg{RST}/{BOLD}bg{RST}/{BOLD}jobs{RST})\n"
+              f"Deine ~/.bashrc (Aliase, Funktionen, PATH) wird automatisch geladen.\n"
+              f"Eigene Einstellungen nur für hamster: {BOLD}~/.hamsterrc{RST} (bash-Syntax), danach {BOLD}reload{RST}")
         return 0
+    if cmd == "jobs":
+        reap_jobs()
+        for j in JOBS:
+            print(f"[{j['id']}] {'angehalten' if j['stopped'] else 'läuft    '}  {j['cmd']}")
+        return 0
+    if cmd in ("fg", "bg"):
+        j = find_job(argv)
+        if not j:
+            return 1
+        if cmd == "bg":
+            os.killpg(j["pid"], signal.SIGCONT)
+            j["stopped"] = False
+            print(f"[{j['id']}] läuft im Hintergrund: {j['cmd']}")
+            return 0
+        print(j["cmd"])
+        give_terminal(j["pid"])
+        os.killpg(j["pid"], signal.SIGCONT)
+        rc, stopped = wait_fg(j["pid"])
+        JOBS.remove(j)
+        if stopped:
+            add_job(j["pid"], j["cmd"])
+        return rc
     if cmd == "cd":
         target = os.path.expanduser(argv[1]) if len(argv) > 1 else HOME
         if target == "-":
@@ -585,13 +839,56 @@ def run_builtin(argv):
     return None
 
 
+class ErrReader(threading.Thread):
+    """Liest stderr des Programms über ein Pseudo-Terminal, zeigt es sofort an und merkt es sich.
+    Für das Programm sieht stderr wie ein echtes Terminal aus (Farben, Fortschrittsbalken)."""
+
+    def __init__(self, fd):
+        super().__init__(daemon=True)
+        self.fd, self.buf = fd, bytearray()
+
+    def run(self):
+        while True:
+            try:
+                data = os.read(self.fd, 65536)
+            except OSError:
+                break
+            if not data:
+                break
+            view = memoryview(data)
+            while view:
+                try:
+                    view = view[os.write(2, view):]
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    break
+            self.buf += data
+            del self.buf[:-65536]
+        os.close(self.fd)
+
+    def lines(self):
+        text = self.buf.decode(errors="replace")
+        text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[()][A-Z0-9]", "", text)
+        return [l.split("\r")[-1] if l.split("\r")[-1] else l.replace("\r", "")
+                for l in text.replace("\r\n", "\n").split("\n")]
+
+
+def main_command(line):
+    """Der eigentliche Programmname (ohne sudo, env, VAR=wert ...)."""
+    for t in tokenize(line):
+        if t.cmdpos and t.text not in CMD_AFTER and t.text not in KEYWORDS:
+            return os.path.basename(t.text), t
+    return "", None
+
+
 def execute(line):
     try:
         argv = shlex.split(line)
     except ValueError:
         argv = []
     simple = argv and not any(t.kind == "op" for t in tokenize(line))
-    if simple and argv[0] in ("cd", "exit", "help", "reload"):
+    if simple and argv[0] in ("cd", "exit", "help", "reload", "jobs", "fg", "bg"):
         return run_builtin(argv)
 
     # Syntax auch von bash prüfen lassen (fängt if/for/case-Fehler)
@@ -604,55 +901,54 @@ def execute(line):
             [re.sub(r"^bash: -c: (line|Zeile) \d+: ", "", l) for l in msg])
         return 2
 
-    state = tempfile.NamedTemporaryFile(prefix="klar", delete=False)
-    state.close()
-    aliases = "".join(f"alias {k}={shlex.quote(v)}\n" for k, v in ENV.aliases.items())
-    rc_src = f"source {shlex.quote(RCFILE)} 2>/dev/null\n" if os.path.exists(RCFILE) else ""
-    script = (f"shopt -s expand_aliases globstar 2>/dev/null\n{aliases}{rc_src}"
-              f"{line}\n__klar_rc=$?\n{{ pwd; env -0; }} > {shlex.quote(state.name)}\nexit $__klar_rc\n")
+    run_dir = new_run_dir()
+    script = (f"__hs={shlex.quote(run_dir)}\nshopt -s expand_aliases\n"
+              f"source {shlex.quote(DEFS)} 2>/dev/null\n"
+              f"{line}\n__hamster_rc=$?\n{DUMP}\nexit $__hamster_rc\n")
 
-    first = os.path.basename(argv[0]) if argv else ""
-    # Interpreter mit Skript-Argument (python3 x.py) ist nicht interaktiv
-    capture = first not in ENV.aliases and (first not in INTERACTIVE or
-              (first in ("python", "python3", "node", "bash", "sh") and len(argv) > 1))
-    err_lines = []
-    old_int = signal.signal(signal.SIGINT, signal.SIG_IGN)
-    try:
-        p = subprocess.Popen(["bash", "-c", script], stderr=subprocess.PIPE if capture else None,
-                             preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
-        if capture:
-            def pump():
-                for raw in iter(p.stderr.readline, b""):
-                    sys.stderr.buffer.write(raw)
-                    sys.stderr.buffer.flush()
-                    err_lines.append(raw.decode(errors="replace").rstrip("\n"))
-                    del err_lines[:-200]
-            th = threading.Thread(target=pump, daemon=True)
-            th.start()
-        rc = p.wait()
-        if capture:
-            th.join(timeout=1)
-    finally:
-        signal.signal(signal.SIGINT, old_int)
+    prog, tok = main_command(line)
+    args_after = line[tok.end:].split() if tok else []
+    alias_target = ENV.aliases.get(prog, "").split()
+    if alias_target:
+        prog = os.path.basename(alias_target[0])
+    capture = not (prog in INTERACTIVE and not (prog in REPL_WITH_SCRIPT and args_after))
 
-    # Ordner- und Variablenänderungen übernehmen (z. B. "cd x && ls", "export A=1")
+    file_actions, reader, slave = [], None, None
+    if capture:
+        try:
+            master, slave = pty.openpty()
+            try:
+                ws = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, b"\0" * 8)
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, ws)
+            except OSError:
+                pass
+            file_actions = [(os.POSIX_SPAWN_DUP2, slave, 2)]
+            reader = ErrReader(master)
+        except OSError:
+            capture = False
+
+    sigs = [signal.SIGINT, signal.SIGQUIT, signal.SIGTSTP, signal.SIGTTIN, signal.SIGTTOU,
+            signal.SIGPIPE, signal.SIGCHLD]
     try:
-        data = open(state.name, "rb").read()
-        if data:
-            cwd, _, envdata = data.partition(b"\n")
-            new_env = dict(kv.decode(errors="replace").split("=", 1) for kv in envdata.split(b"\0") if b"=" in kv)
-            for k in ("SHLVL", "_", "__klar_rc", "BASH_EXECUTION_STRING"):
-                new_env.pop(k, None)
-            if new_env.get("PATH") != os.environ.get("PATH"):
-                ENV._cmds = None
-            os.environ.clear()
-            os.environ.update(new_env)
-            if os.path.isdir(cwd.decode()):
-                os.chdir(cwd.decode())
+        pid = os.posix_spawnp("bash", ["bash", "-c", script], os.environ,
+                              file_actions=file_actions, setpgroup=0, setsigdef=sigs)
     finally:
-        os.unlink(state.name)
+        if slave is not None:
+            os.close(slave)
+    if reader:
+        reader.start()
+    give_terminal(pid)
+    rc, stopped = wait_fg(pid)
+    if stopped:
+        add_job(pid, line)
+        return rc
+    if reader:
+        reader.join(timeout=0.3)
+    apply_state(run_dir)
 
     if rc != 0 and rc != 130:
+        err_lines = reader.lines() if reader else []
+        err_lines = [l for l in err_lines if l.strip()]
         expl = explain_stderr(err_lines, line) if err_lines else []
         exit_txt = explain_exit(rc)
         if expl is not None:
@@ -701,12 +997,16 @@ STYLE = Style.from_dict({
 })
 
 
-def main():
-    os.environ["SHELL"] = os.path.abspath(sys.argv[0])
-    os.environ["SHLVL"] = str(int(os.environ.get("SHLVL", "0")) + 1)
-    if len(sys.argv) > 2 and sys.argv[1] == "-c":
-        sys.exit(execute(sys.argv[2]) if precheck(sys.argv[2]) else 127)
+def hangup_jobs():
+    for j in JOBS:
+        try:
+            os.killpg(j["pid"], signal.SIGHUP)
+            os.killpg(j["pid"], signal.SIGCONT)
+        except OSError:
+            pass
 
+
+def shell_loop():
     kb = KeyBindings()
 
     @kb.add("c-e")
@@ -717,17 +1017,24 @@ def main():
         else:
             b.cursor_position = len(b.text)
 
-    session = PromptSession(history=FileHistory(HISTFILE), auto_suggest=KlarSuggest(),
-                            completer=KlarCompleter(), lexer=KlarLexer(), style=STYLE,
+    session = PromptSession(history=FileHistory(HISTFILE), auto_suggest=HamsterSuggest(),
+                            completer=HamsterCompleter(), lexer=HamsterLexer(), style=STYLE,
                             complete_while_typing=False, key_bindings=kb, enable_history_search=False,
                             mouse_support=False)
-    print(f"{BOLD}klar{RST} – Tippe {G}help{RST} für Hilfe. Tab = vervollständigen, → = Vorschlag annehmen.")
+    if os.environ.get("HAMSTER_QUIET") != "1":
+        print(f"{BOLD}🐹 hamster{RST} – Tippe {G}help{RST} für Hilfe. Tab = vervollständigen, → = Vorschlag annehmen.")
+    warned_jobs = False
     while True:
+        reap_jobs()
         try:
             line = session.prompt(make_prompt())
         except KeyboardInterrupt:
             continue
         except EOFError:
+            if JOBS and not warned_jobs:
+                print(f"{Y}Es gibt noch angehaltene Programme (jobs). Nochmal Strg+D zum Beenden.{RST}")
+                warned_jobs = True
+                continue
             print("Tschüss!")
             break
         line = line.strip()
@@ -745,8 +1052,36 @@ def main():
         except SystemExit:
             raise
         except Exception as e:
-            box("Interner Fehler in klar", None, lines=[repr(e)])
+            box("Interner Fehler in hamster", None, lines=[repr(e), "Der Befehl wurde evtl. nicht ausgeführt."])
             ENV.last_rc = 1
+
+
+def main():
+    os.environ["SHLVL"] = str(int(os.environ.get("SHLVL", "0") or 0) + 1)
+    # Die Shell selbst darf durch Strg+Z / Terminal-Übergaben nicht angehalten werden
+    # Strg+C trifft nur das laufende Programm (eigene Prozessgruppe), nie die Shell selbst
+    for s in (signal.SIGINT, signal.SIGTSTP, signal.SIGTTOU, signal.SIGTTIN, signal.SIGQUIT):
+        signal.signal(s, signal.SIG_IGN)
+    if TTY is not None:
+        try:
+            os.setpgid(0, 0)
+        except OSError:
+            pass
+        give_terminal(os.getpgrp())
+    load_startup()
+
+    if _REST[:1] == ["--try"]:
+        cmd = " ".join(_REST[1:])
+        sys.exit(execute(cmd) if precheck(cmd) else 127)
+
+    atexit.register(hangup_jobs)
+    try:
+        shell_loop()
+    except SystemExit:
+        raise
+    except BaseException as e:  # Sicherheitsnetz: bei einem Absturz in bash weitermachen
+        sys.stderr.write(f"\nhamster ist abgestürzt ({e!r}) – starte bash, damit du weiterarbeiten kannst.\n")
+        _fallback_to_bash([], False)
 
 
 if __name__ == "__main__":

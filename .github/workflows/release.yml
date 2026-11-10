@@ -1,0 +1,95 @@
+name: Bauen, testen & apt-Repository veröffentlichen
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: echo "version=$(cat VERSION).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev apt-utils
+      - run: packaging/build-deb.sh "${{ steps.v.outputs.version }}" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*.deb
+
+  # Das Paket wird auf jeder unterstützten Version von Ubuntu und Debian mit apt installiert und getestet
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04", "debian:11", "debian:12", "debian:13"]
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+          path: dist
+      - name: Mit apt installieren
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq ./dist/*.deb python3-pexpect vim-tiny less procps gcc libc6-dev
+          hamster --version
+          grep -q /usr/bin/hamster /etc/shells
+      - name: Tests
+        run: python3 tests/test_hamster.py /usr/bin/hamster
+
+  publish:
+    needs: [build, test]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+          path: dist
+      - name: GitHub-Release mit .deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/*.deb --title "hamster $VERSION" --notes \
+            "Installieren (Ubuntu & Debian): \`curl -fsSL https://noi922.github.io/Linux-plugin/setup.sh | sudo sh\` – danach \`sudo apt install hamster\`. Oder diese .deb laden und \`sudo apt install ./hamster_${VERSION}_all.deb\`."
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev apt-utils
+      - name: Optional mit GPG signieren (Secret APT_GPG_PRIVATE_KEY)
+        env:
+          KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "$KEY" | gpg --batch --import
+            echo "HAMSTER_GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5; exit}')" >> "$GITHUB_ENV"
+          fi
+      - run: packaging/build-repo.sh dist site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

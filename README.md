@@ -1,60 +1,119 @@
-# klar 🐚
+# 🐹 hamster
 
-Eine freundliche Linux-Shell im Stil von **fish**, die dir **klar und deutlich sagt, wo der Fehler ist**, und vervollständigt, was du eingibst.
-
-## Funktionen
-
-- **Farben beim Tippen:** Befehl grün = existiert, **rot unterstrichen = gibt es nicht**. Optionen, Strings, Variablen, Pipes und vorhandene Pfade sind farbig.
-- **Grauer Vorschlag** aus dem Verlauf (wie bei fish). Mit `→` oder `Strg+E` übernimmst du ihn, mit `Alt+→` nur ein Wort.
-- **Tab-Vervollständigung** für Befehle, Dateien und Ordner (`cd` zeigt nur Ordner), `$VARIABLEN`, Unterbefehle von git, apt, docker, systemctl, pip, npm und cargo sowie git-Branches. Bei Tippfehlern wird auch unscharf gesucht.
-- **Fehler vor dem Ausführen** werden mit `^^^` an der genauen Stelle markiert:
-  ```
-  ✗ Befehl nicht gefunden
-  │ gti status
-  │ ^^^
-  │ Den Befehl gti gibt es nicht.
-  │ Meintest du: git, tic, gsutil ?
-  ```
-  Erkannt werden unbekannte Befehle, offene Anführungszeichen und `$(`, Pipes oder `&&` ohne Befehl, `>` ohne Datei und Bash-Syntaxfehler.
-- **Fehler nach dem Ausführen** werden erklärt. Bei Python-Tracebacks, Compiler-Meldungen (gcc, clang, rustc …) und Shell-Skripten siehst du **Datei, Zeile und Code-Ausschnitt**:
-  ```
-  ✗ Fehlgeschlagen (Exit-Code 1)
-  │ Fehler in t.c, Zeile 4, Spalte 3:
-  │ expected ‘,’ or ‘;’ before ‘return’
-  │      3 │   int x = 1
-  │ →    4 │   return 0;
-  │        │   ^ hier
-  ```
-  Dazu kommen verständliche Hinweise zu „Datei nicht gefunden“ (mit Namensvorschlag), „Keine Berechtigung“, voller Festplatte, DNS- und Netzwerkfehlern, apt, git, belegten Ports, Signalen wie Segfault oder OOM-Kill und mehr.
-- Volle Bash-Kompatibilität beim Ausführen: Pipes, `&&`, Schleifen und `export` funktionieren. `cd` und Variablen bleiben erhalten.
+Eine freundliche Linux-Shell im Stil von **fish**, die dir **klar und deutlich sagt, wo der Fehler ist**, und vervollständigt, was du eingibst. Für **Ubuntu** und **Debian**.
 
 ## Installation
 
+Einmal die Paketquelle einrichten, das installiert hamster gleich mit:
+
 ```bash
-git clone https://github.com/Noi922/Linux-plugin.git
-cd Linux-plugin
-./install.sh
-klar
+curl -fsSL https://noi922.github.io/Linux-plugin/setup.sh | sudo sh
 ```
 
-Voraussetzung: Python 3.8 oder neuer mit `venv` (Debian/Ubuntu: `sudo apt install python3-venv`).
+Ohne curl geht es auch mit wget: `wget -qO- https://noi922.github.io/Linux-plugin/setup.sh | sudo sh`
 
-## Benutzung
+Danach funktioniert hamster wie jedes andere Paket:
+
+```bash
+sudo apt install hamster        # installieren
+sudo apt update && sudo apt upgrade   # aktualisieren
+sudo apt remove hamster         # entfernen
+```
+
+<details><summary>Paketquelle von Hand einrichten (statt setup.sh)</summary>
+
+```bash
+echo "deb [trusted=yes] https://noi922.github.io/Linux-plugin/ ./" | sudo tee /etc/apt/sources.list.d/hamster.list
+sudo apt update
+sudo apt install hamster
+```
+</details>
+
+Du kannst auch die `.deb`-Datei aus den [Releases](https://github.com/Noi922/Linux-plugin/releases) laden und mit `sudo apt install ./hamster_*_all.deb` installieren.
+
+**Unterstützt:** Ubuntu 22.04, 24.04 und neuer · Debian 11, 12, 13. Jede Version wird automatisch getestet.
+
+## Starten
+
+```bash
+hamster                       # ausprobieren
+chsh -s /usr/bin/hamster      # als Standard-Shell (Zurück: chsh -s /bin/bash)
+```
+
+## Was hamster kann
+
+**Fehler vor dem Ausführen** werden mit `^^^` an der genauen Stelle markiert:
+```
+✗ Befehl nicht gefunden
+│ gti status
+│ ^^^
+│ Den Befehl gti gibt es nicht.
+│ Meintest du: git, tic, gsutil ?
+```
+Erkannt werden unbekannte Befehle (mit Paket-Vorschlag), nicht geschlossene `"` und `$(`, `|` oder `&&` ohne Befehl, `>` ohne Datei und Bash-Syntaxfehler.
+
+**Fehler nach dem Ausführen** werden erklärt. Bei Python, gcc, clang, rustc und Shell-Skripten siehst du Datei, Zeile und Code:
+```
+✗ Fehlgeschlagen (Exit-Code 1)
+│ Fehler in t.c, Zeile 3, Spalte 3:
+│ expected ‘,’ or ‘;’ before ‘return’
+│      2 │   int x = 1
+│ →    3 │   return 0;
+│        │   ^ hier
+```
+Dazu gibt es verständliche Hinweise zu: Datei nicht gefunden (mit Namensvorschlag), keine Berechtigung, Festplatte voll, DNS- und Netzwerkfehler, apt, git, belegte Ports, Segfault, OOM-Kill und mehr.
+
+**Vervollständigung wie bei fish:**
+- Grauer Vorschlag aus dem Verlauf, übernehmen mit `→` oder `Strg+E`
+- `Tab` für Befehle, Dateien, Ordner (bei `cd` nur Ordner), `$VARIABLEN`, Unterbefehle von git, apt, docker, systemctl, pip, npm und cargo, git-Branches
+- Farben beim Tippen: Befehl grün = existiert, **rot = gibt es nicht**
+
+## Kompatibel mit deinen Programmen
+
+hamster führt jeden Befehl in **echter bash** aus. Deshalb funktioniert alles wie gewohnt:
+
+- Deine `~/.bashrc` und `~/.profile` werden geladen, mit Aliasen, Funktionen und `PATH`
+- `source venv/bin/activate`, `export`, `cd`, Funktionen und Variablen bleiben bis zum nächsten Befehl erhalten
+- Programme sehen ein echtes Terminal: Farben und Fortschrittsbalken von apt, pip, git und gcc bleiben
+- Vollbild-Programme laufen ganz normal: vim, nano, less, htop, top, tmux, ssh, mc …
+- `Strg+C` beendet nur das Programm, `Strg+Z` hält es an, mit `fg`, `bg` und `jobs` geht es weiter
+- Wird hamster von anderen Programmen aufgerufen (`ssh host befehl`, scp, rsync, VS Code Remote, cron, `hamster -c …`, Skripte), läuft direkt bash. Als Login-Shell geht also nichts kaputt.
+- Sicherheitsnetz: Fehlt etwas oder stürzt hamster ab, startet automatisch bash. So stehst du nie ohne Shell da.
+
+## Bedienung
 
 | Taste | Wirkung |
 |---|---|
-| `Tab` | vervollständigen / Auswahl durchblättern |
-| `→` oder `Strg+E` | grauen Vorschlag übernehmen |
+| `Tab` | vervollständigen |
+| `→` / `Strg+E` | grauen Vorschlag übernehmen |
 | `Alt+→` | ein Wort vom Vorschlag übernehmen |
 | `Strg+R` | im Verlauf suchen |
+| `Strg+Z` | Programm anhalten (`fg` / `bg` / `jobs`) |
 | `Strg+D` | beenden |
 
-Eingebaute Befehle: `help`, `history`, `reload` (lädt `~/.klarrc` neu), `cd`, `exit`.
+Eingebaute Befehle: `help`, `history`, `reload`, `jobs`, `fg`, `bg`, `cd`, `exit` · Handbuch: `man hamster`
 
-**Konfiguration:** `~/.klarrc` ist in Bash-Syntax geschrieben und wird vor jedem Befehl eingelesen, zum Beispiel:
+**Einstellungen nur für hamster** kommen in `~/.hamsterrc` (Bash-Syntax), danach `reload` eingeben:
 ```bash
 alias gs='git status'
 export EDITOR=nano
 ```
+Umgebungsvariablen: `HAMSTER_NO_BASHRC=1` lädt die `~/.bashrc` nicht, `HAMSTER_QUIET=1` schaltet die Begrüßung ab.
 
-Einzelnen Befehl ausführen: `klar -c 'befehl'`
+## Entwicklung
+
+```bash
+python3 hamster.py                              # direkt starten (braucht python3-prompt-toolkit)
+python3 tests/test_hamster.py                   # Tests (braucht python3-pexpect)
+packaging/build-deb.sh 1.0.0 dist               # .deb bauen
+./install.sh                                    # aus dem Quellcode bauen und mit apt installieren
+```
+
+Bei jedem Push auf `main` passiert automatisch Folgendes ([Workflow](.github/workflows/release.yml)):
+1. Das `.deb` wird gebaut, Version `VERSION` plus Build-Nummer.
+2. Es wird auf Ubuntu 22.04/24.04 und Debian 11/12/13 mit apt installiert und getestet.
+3. Es erscheint als GitHub-Release, und die apt-Paketquelle auf GitHub Pages wird aktualisiert. `sudo apt upgrade` holt dann die neue Version.
+
+## Lizenz
+
+MIT
