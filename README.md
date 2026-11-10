@@ -67,6 +67,9 @@ Dazu gibt es verständliche Hinweise zu: Datei nicht gefunden (mit Namensvorschl
 - Grauer Vorschlag aus dem Verlauf, übernehmen mit `→` oder `Strg+E`
 - `Tab` für Befehle, Dateien, Ordner (bei `cd` nur Ordner), `$VARIABLEN`, Unterbefehle von git, apt, docker, systemctl, pip, npm und cargo, git-Branches
 - Farben beim Tippen: Befehl grün = existiert, **rot = gibt es nicht**
+- Endet eine Zeile mit `|`, `&&`, `||` oder `\`, geht es in der nächsten Zeile weiter
+- Dauert ein Befehl 5 Sekunden oder länger, zeigt der Prompt die Laufzeit an (`⏱ 1m 12s`)
+- Der Verlauf speichert keine direkten Wiederholungen. Befehle mit einem Leerzeichen am Anfang landen gar nicht im Verlauf.
 
 ## Kompatibel mit deinen Programmen
 
