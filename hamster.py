@@ -49,6 +49,7 @@ try:
     import tempfile
     import termios
     import threading
+    import time
     from dataclasses import dataclass
 
     from prompt_toolkit import PromptSession
@@ -225,11 +226,17 @@ def tokenize(line):
 class Env:
     """Merkt sich Aliase und Funktionen der dahinterliegenden bash."""
 
+    EXTRA = {"history", "help", "reload", "jobs", "fg", "bg"}
+
     def __init__(self):
         self.aliases = {}
         self.functions = set()
         self.last_rc = 0
-        self._cmds = None
+        self.last_duration = 0.0
+        self._cmds = None             # alle Befehle (für Vervollständigung)
+        self._path_cache = (None, None)  # (PATH, Programme in PATH)
+        self._which = {}              # schneller Einzel-Check, ohne kompletten PATH-Scan
+        self._lock = threading.Lock()
 
     def parse_defs(self, text):
         aliases = {}
@@ -240,19 +247,49 @@ class Env:
             self._cmds = None
         self.aliases, self.functions = aliases, funcs
 
-    def commands(self):
-        if self._cmds is None:
-            cmds = (set(BASH_BUILTINS) | set(self.aliases) | self.functions
-                    | {"history", "help", "reload", "jobs", "fg", "bg"})
-            for d in os.environ.get("PATH", "").split(":"):
+    def path_commands(self):
+        """Alle Programme im PATH. Ergebnis bleibt gespeichert, bis sich PATH ändert."""
+        path = os.environ.get("PATH", "")
+        key = (path, self._mtimes(path))
+        with self._lock:
+            if self._path_cache[0] == key:
+                return self._path_cache[1]
+            found = set()
+            for d in path.split(":"):
                 try:
-                    for f in os.listdir(d):
-                        p = os.path.join(d, f)
-                        if os.access(p, os.X_OK) and not os.path.isdir(p):
-                            cmds.add(f)
+                    with os.scandir(d or ".") as it:
+                        for e in it:
+                            try:
+                                if e.is_file():
+                                    found.add(e.name)
+                            except OSError:
+                                pass
                 except OSError:
                     pass
-            self._cmds = cmds
+            self._path_cache, self._cmds, self._which = (key, found), None, {}
+            return found
+
+    @staticmethod
+    def _mtimes(path):
+        out = []
+        for d in path.split(":"):
+            try:
+                out.append(os.stat(d or ".").st_mtime_ns)
+            except OSError:
+                out.append(0)
+        return tuple(out)
+
+    def warm_up(self):
+        """PATH im Hintergrund einlesen, damit die erste Tab-Vervollständigung sofort da ist."""
+        threading.Thread(target=self.path_commands, daemon=True).start()
+
+    def commands(self):
+        if self._cmds is None or self._path_cache[0] is None or \
+                self._path_cache[0] != (os.environ.get("PATH", ""), self._mtimes(os.environ.get("PATH", ""))):
+            self.path_commands()
+        if self._cmds is None:
+            self._cmds = (set(BASH_BUILTINS) | set(self.aliases) | self.functions
+                          | self.EXTRA | self._path_cache[1])
         return self._cmds
 
     def exists(self, word):
@@ -261,7 +298,21 @@ class Env:
             return True  # dynamisch – nicht prüfbar
         if "/" in w:
             return os.path.isfile(w) and os.access(w, os.X_OK) or os.path.isdir(w)
-        return w in KEYWORDS or w in self.commands() or shutil.which(w) is not None
+        if w in KEYWORDS or w in BASH_BUILTINS or w in self.aliases or w in self.functions or w in self.EXTRA:
+            return True
+        path = os.environ.get("PATH", "")
+        if self._path_cache[0] is not None and self._path_cache[0][0] == path:
+            return w in self._path_cache[1] or w in self._which.get(path, ()) or self._which_check(w, path)
+        return self._which_check(w, path)
+
+    def _which_check(self, w, path):
+        known = self._which.setdefault(path, set())
+        if w in known:
+            return True
+        if shutil.which(w, path=path):
+            known.add(w)   # nur Treffer merken – neu installierte Programme werden sofort erkannt
+            return True
+        return False
 
 
 ENV = Env()
@@ -984,10 +1035,15 @@ def make_prompt():
     br = git_branch()
     rc = ENV.last_rc
     status = f"{R}[{rc}] {RST}" if rc else ""
+    took = ""
+    if ENV.last_duration >= 5:
+        sec = int(ENV.last_duration)
+        took = f" {Y}⏱ " + (f"{sec // 3600}h {sec % 3600 // 60:02d}m" if sec >= 3600 else
+                              f"{sec // 60}m {sec % 60:02d}s" if sec >= 60 else f"{sec}s") + RST
     arrow = f"{R}❯{RST}" if rc else f"{G}❯{RST}"
     sym = "#" if os.geteuid() == 0 else ""
     return ANSI(f"{G}{user}{RST}{GR}@{socket.gethostname()}{RST} {B}{BOLD}{cwd}{RST}"
-                + (f" {M}({br}){RST}" if br else "") + f"\n{status}{sym}{arrow} ")
+                + (f" {M}({br}){RST}" if br else "") + took + f"\n{status}{sym}{arrow} ")
 
 
 STYLE = Style.from_dict({
@@ -1006,8 +1062,35 @@ def hangup_jobs():
             pass
 
 
+class HamsterHistory(FileHistory):
+    """Wie bash mit HISTCONTROL=ignoreboth: keine direkten Wiederholungen,
+    Befehle mit Leerzeichen am Anfang werden nicht gespeichert."""
+
+    def append_string(self, string):
+        if not string.strip() or string[:1] == " ":
+            return
+        newest = getattr(self, "_loaded_strings", None)
+        if newest and newest[0] == string:
+            return
+        super().append_string(string)
+
+
+CONTINUE_ENDINGS = ("|", "&&", "||", "\\")
+
+
 def shell_loop():
     kb = KeyBindings()
+
+    @kb.add("enter")
+    def _(event):
+        """Endet die Zeile mit | && || oder \\, geht es in der nächsten Zeile weiter."""
+        b = event.current_buffer
+        b.complete_state = None
+        text = b.document.text_before_cursor.rstrip(" \t")
+        if b.document.is_cursor_at_the_end and text.endswith(CONTINUE_ENDINGS) and not text.endswith("\\\\"):
+            b.insert_text("\n")
+        else:
+            b.validate_and_handle()
 
     @kb.add("c-e")
     def _(event):
@@ -1017,10 +1100,11 @@ def shell_loop():
         else:
             b.cursor_position = len(b.text)
 
-    session = PromptSession(history=FileHistory(HISTFILE), auto_suggest=HamsterSuggest(),
+    session = PromptSession(history=HamsterHistory(HISTFILE), auto_suggest=HamsterSuggest(),
                             completer=HamsterCompleter(), lexer=HamsterLexer(), style=STYLE,
                             complete_while_typing=False, key_bindings=kb, enable_history_search=False,
-                            mouse_support=False)
+                            mouse_support=False, multiline=True,
+                            prompt_continuation=lambda width, line_no, wrap: ANSI(GR + "…".rjust(width - 1) + " " + RST))
     if os.environ.get("HAMSTER_QUIET") != "1":
         print(f"{BOLD}🐹 hamster{RST} – Tippe {G}help{RST} für Hilfe. Tab = vervollständigen, → = Vorschlag annehmen.")
     warned_jobs = False
@@ -1045,8 +1129,9 @@ def shell_loop():
                 print(f"{GR}{i:>3}{RST}  {h}")
             continue
         if not precheck(line):
-            ENV.last_rc = 127
+            ENV.last_rc, ENV.last_duration = 127, 0
             continue
+        started = time.monotonic()
         try:
             ENV.last_rc = execute(line)
         except SystemExit:
@@ -1054,6 +1139,7 @@ def shell_loop():
         except Exception as e:
             box("Interner Fehler in hamster", None, lines=[repr(e), "Der Befehl wurde evtl. nicht ausgeführt."])
             ENV.last_rc = 1
+        ENV.last_duration = time.monotonic() - started
 
 
 def main():
@@ -1069,6 +1155,7 @@ def main():
             pass
         give_terminal(os.getpgrp())
     load_startup()
+    ENV.warm_up()
 
     if _REST[:1] == ["--try"]:
         cmd = " ".join(_REST[1:])

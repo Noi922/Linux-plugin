@@ -116,6 +116,21 @@ time.sleep(1)
 out = run("; pwd")
 check("Tab-Vervollständigung", "/usr" in out, out)
 
+# Fortsetzungszeile: endet die Zeile mit |, geht es in der nächsten weiter
+p.send("echo fortsetzung |\r")
+time.sleep(0.5)
+out = run("tr a-z A-Z")
+check("Fortsetzungszeile nach |", "FORTSETZUNG" in out, out)
+out = run("sleep 5.2; echo DAUER", 1)
+time.sleep(5)
+out += drain()
+check("Dauer im Prompt", "⏱ 5s" in out, out)
+for _ in range(3):
+    run("echo doppelt")
+run(" echo geheim")
+hist = open(os.path.join(HOME, ".hamster_history")).read()
+check("Verlauf ohne Duplikate/Leerzeichen-Befehle", hist.count("+echo doppelt") == 1 and "geheim" not in hist, hist[-300:])
+
 p.send("sleep 30\r")
 time.sleep(1)
 p.sendcontrol("z")
