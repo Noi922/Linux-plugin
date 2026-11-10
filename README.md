@@ -4,32 +4,43 @@ Eine freundliche Linux-Shell im Stil von **fish**, die dir **klar und deutlich s
 
 ## Installation
 
-Einmal die Paketquelle einrichten, das installiert hamster gleich mit:
+Ein Befehl im Terminal genügt:
 
 ```bash
-curl -fsSL https://noi922.github.io/Linux-plugin/setup.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/Noi922/Linux-plugin/main/packaging/setup.sh | sudo sh
 ```
 
-Ohne curl geht es auch mit wget: `wget -qO- https://noi922.github.io/Linux-plugin/setup.sh | sudo sh`
-
-Danach funktioniert hamster wie jedes andere Paket:
+Danach startest du hamster einfach mit:
 
 ```bash
-sudo apt install hamster        # installieren
-sudo apt update && sudo apt upgrade   # aktualisieren
-sudo apt remove hamster         # entfernen
+hamster
 ```
 
-<details><summary>Paketquelle von Hand einrichten (statt setup.sh)</summary>
+Ohne curl geht es mit wget: `wget -qO- https://raw.githubusercontent.com/Noi922/Linux-plugin/main/packaging/setup.sh | sudo sh`
 
+Das Skript richtet die apt-Paketquelle ein, sobald sie online ist. Danach geht alles wie bei jedem anderen Paket:
+
+```bash
+sudo apt install hamster                  # installieren
+sudo apt update && sudo apt upgrade       # aktualisieren
+sudo apt remove hamster                   # entfernen
+```
+
+Ist die Paketquelle nicht erreichbar, installiert das Skript die neueste `.deb`-Datei aus den [Releases](https://github.com/Noi922/Linux-plugin/releases). Zum Aktualisieren führst du dann denselben Befehl einfach nochmal aus.
+
+<details><summary>Andere Wege</summary>
+
+Paketquelle von Hand einrichten:
 ```bash
 echo "deb [trusted=yes] https://noi922.github.io/Linux-plugin/ ./" | sudo tee /etc/apt/sources.list.d/hamster.list
-sudo apt update
-sudo apt install hamster
+sudo apt update && sudo apt install hamster
+```
+
+Aus dem Quellcode:
+```bash
+git clone https://github.com/Noi922/Linux-plugin.git && cd Linux-plugin && ./install.sh
 ```
 </details>
-
-Du kannst auch die `.deb`-Datei aus den [Releases](https://github.com/Noi922/Linux-plugin/releases) laden und mit `sudo apt install ./hamster_*_all.deb` installieren.
 
 **Unterstützt:** Ubuntu 22.04, 24.04 und neuer · Debian 12, 13. Jede Version wird automatisch getestet.
 
