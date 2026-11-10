@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Baut das Debian-Paket: packaging/build-deb.sh [VERSION] [AUSGABEORDNER]
 # Ergebnis läuft auf Ubuntu (20.04+) und Debian (11+), Architektur "all".
 set -euo pipefail
@@ -15,7 +16,7 @@ sed -i -e '1s|.*|#!/usr/bin/python3|' -e "s/^__version__ = .*/__version__ = \"$V
 mkdir -p "$B/usr/bin"
 ln -s ../lib/hamster/hamster.py "$B/usr/bin/hamster"
 install -Dm644 "$ROOT/README.md" "$B/usr/share/doc/hamster/README.md"
-install -Dm644 "$ROOT/LICENSE" "$B/usr/share/doc/hamster/copyright"
+install -Dm644 "$ROOT/packaging/copyright" "$B/usr/share/doc/hamster/copyright"
 install -Dm644 "$ROOT/packaging/hamster.1" "$B/usr/share/man/man1/hamster.1"
 gzip -9n "$B/usr/share/man/man1/hamster.1"
 

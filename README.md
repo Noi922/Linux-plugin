@@ -1,5 +1,7 @@
 # 🐹 hamster
 
+[![Lizenz: MIT](https://img.shields.io/badge/Lizenz-MIT-blue.svg)](LICENSE)
+
 Eine freundliche Linux-Shell im Stil von **fish**, die dir **klar und deutlich sagt, wo der Fehler ist**, und vervollständigt, was du eingibst. Für **Ubuntu** und **Debian**.
 
 ## Installation
@@ -130,4 +132,4 @@ Bei jedem Push auf `main` passiert automatisch Folgendes ([Workflow](.github/wor
 
 ## Lizenz
 
-MIT
+hamster steht unter der [MIT-Lizenz](LICENSE). Du darfst es frei benutzen, verändern und weitergeben, auch kommerziell. Der Copyright-Hinweis muss dabei erhalten bleiben.

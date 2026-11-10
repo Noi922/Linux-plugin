@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Baut hamster aus diesem Quellcode als .deb und installiert es mit apt (Ubuntu & Debian).
 # Normalerweise brauchst du das nicht – nimm die Paketquelle (siehe README).
 set -euo pipefail

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Noi922 – https://github.com/Noi922/Linux-plugin
 """hamster – eine freundliche Shell im Stil von fish.
 
 * Farbige Syntax-Hervorhebung beim Tippen (rot = Befehl existiert nicht)

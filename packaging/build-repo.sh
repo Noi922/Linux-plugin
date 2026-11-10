@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Erzeugt aus den .deb-Dateien ein apt-Repository: packaging/build-repo.sh DEB-ORDNER ZIELORDNER
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

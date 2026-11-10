@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: MIT
 # Installiert hamster auf Ubuntu & Debian – danach startet es mit dem Befehl: hamster
 #   curl -fsSL https://raw.githubusercontent.com/Noi922/Linux-plugin/main/packaging/setup.sh | sudo sh
 #   wget -qO-  https://raw.githubusercontent.com/Noi922/Linux-plugin/main/packaging/setup.sh | sudo sh

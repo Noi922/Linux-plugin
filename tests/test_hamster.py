@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Tests für hamster. Aufruf: python3 tests/test_hamster.py [PFAD-ZU-HAMSTER]
 Braucht: python3-pexpect (sudo apt install python3-pexpect)"""
 import os
