@@ -31,7 +31,7 @@ sudo apt install hamster
 
 Du kannst auch die `.deb`-Datei aus den [Releases](https://github.com/Noi922/Linux-plugin/releases) laden und mit `sudo apt install ./hamster_*_all.deb` installieren.
 
-**Unterstützt:** Ubuntu 22.04, 24.04 und neuer · Debian 11, 12, 13. Jede Version wird automatisch getestet.
+**Unterstützt:** Ubuntu 22.04, 24.04 und neuer · Debian 12, 13. Jede Version wird automatisch getestet.
 
 ## Starten
 
@@ -111,7 +111,7 @@ packaging/build-deb.sh 1.0.0 dist               # .deb bauen
 
 Bei jedem Push auf `main` passiert automatisch Folgendes ([Workflow](.github/workflows/release.yml)):
 1. Das `.deb` wird gebaut, Version `VERSION` plus Build-Nummer.
-2. Es wird auf Ubuntu 22.04/24.04 und Debian 11/12/13 mit apt installiert und getestet.
+2. Es wird auf Ubuntu 22.04/24.04 und Debian 12/13 mit apt installiert und getestet.
 3. Es erscheint als GitHub-Release, und die apt-Paketquelle auf GitHub Pages wird aktualisiert. `sudo apt upgrade` holt dann die neue Version.
 
 ## Lizenz
