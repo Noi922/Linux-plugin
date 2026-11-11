@@ -298,6 +298,9 @@ def tokenize(line):
         if c in " \t":
             i += 1
             continue
+        if c == "\\" and line[i + 1:i + 2] == "\n":      # Zeilenfortsetzung: bash entfernt \ + Zeilenumbruch
+            i += 2
+            continue
         if c == "\n":
             toks.append(Tok("\n", i, i + 1, "op"))
             i += 1
@@ -1782,7 +1785,7 @@ CONTINUE_ENDINGS = ("|", "&&", "||", "\\")
 
 def needs_more_input(text):
     """Soll Enter eine neue Zeile beginnen statt auszuführen? (wie fish)"""
-    t = text.rstrip(" \t")
+    t = text.rstrip(" \t\n")   # auch Leerzeilen danach (CRLF beim Einfügen = zweimal Enter)
     if t.endswith(CONTINUE_ENDINGS) and not t.endswith("\\\\"):
         return True
     try:
@@ -1797,6 +1800,7 @@ def shell_loop():
     hist = []   # ausgeführte Befehle (für !!, !$, Alt+.)
 
     @kb.add("enter")
+    @kb.add("c-j")      # manche Terminals schicken beim Einfügen LF statt CR
     def _(event):
         """Unfertige Eingabe (| am Ende, if ohne fi, Here-Document ...) geht in der nächsten Zeile weiter."""
         b = event.current_buffer

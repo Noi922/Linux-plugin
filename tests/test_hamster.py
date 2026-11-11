@@ -128,6 +128,13 @@ for c in VALID_BASH:
     if "✗" in out:
         fehlalarme.append((c, out.strip().splitlines()[:3]))
 check(f"{len(VALID_BASH)} gültige bash-Befehle ohne Fehlalarm", not fehlalarme, repr(fehlalarme[:3]))
+# Mehrzeiliger Befehl mit \ am Zeilenende (z. B. Docker-Anleitung zum Kopieren)
+DOCKER_SNIPPET = ('echo \\\n  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] '
+                  'https://download.docker.com/linux/ubuntu \\\n  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \\\n'
+                  '  tee ' + os.path.join(TMP, "docker.list") + ' > /dev/null\necho ZWEITE-ZEILE')
+rc, out = try_cmd(DOCKER_SNIPPET)
+check("Zeilenfortsetzung mit \\ (Docker-Anleitung)", "✗" not in out and "ZWEITE-ZEILE" in out
+      and "download.docker.com" in open(os.path.join(TMP, "docker.list")).read(), out)
 rc, out = try_cmd("git comit -m x")
 check("git-Tippfehler wird erklärt", "commit" in out and "^^^^^" in out or not shutil.which("git"), out)
 
@@ -191,6 +198,16 @@ for _ in range(3):
 run(" echo geheim")
 hist = open(os.path.join(HOME, ".hamster_history")).read()
 check("Verlauf ohne Duplikate/Leerzeichen-Befehle", hist.count("+echo doppelt") == 1 and "geheim" not in hist, hist[-300:])
+
+# Einfügen mehrzeiliger Befehle: mit Bracketed Paste, als LF und als CRLF
+for name, data in [("Bracketed Paste", "\x1b[200~" + DOCKER_SNIPPET.replace("ZWEITE-ZEILE", "PASTE-A") + "\x1b[201~\r"),
+                   ("LF", DOCKER_SNIPPET.replace("ZWEITE-ZEILE", "PASTE-B") + "\n"),
+                   ("CRLF", DOCKER_SNIPPET.replace("ZWEITE-ZEILE", "PASTE-C").replace("\n", "\r\n") + "\r\n")]:
+    p.send(data)
+    out = drain(2.5)
+    tag = re.search(r"PASTE-\w", data).group(0)
+    check("Einfügen mehrzeilig (" + name + ")", "nicht gefunden" not in out and "^J" not in out
+          and (tag + "\r\n") in out.replace(tag + "\r\r\n", ""), out)
 
 # Verlaufserweiterung wie in bash
 run("echo eins zwei drei")
