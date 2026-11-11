@@ -71,6 +71,66 @@ if shutil.which("gcc"):
     rc, out = try_cmd("gcc t.c -o t")
     check("gcc mit Zeile und Spalte", "Zeile 3" in out and "^ hier" in out, out)
 
+# ── Kein Fehlalarm bei gültiger bash-Syntax ──
+VALID_BASH = [
+ "# Typische, korrekte Befehle – hamster darf hier KEINEN Fehler melden",
+ "ls 2>&1 | head -1",
+ "echo fehler >&2",
+ "echo x 1>&2",
+ "ls /nix 2>/dev/null || true",
+ "exec 3>&1; echo drei >&3",
+ "[[ -f /etc/passwd && -d /tmp ]] && echo ja",
+ "(( i = 1 + 2 )); echo $i",
+ "arr=(1 2 3); echo ${arr[1]}",
+ "\\ls -d /tmp",
+ "cat <<< \"hallo\"",
+ "case x in a) echo a;; b) echo b;; *) echo stern;; esac",
+ "if [ -d /tmp ]; then echo d; elif true; then echo e; else echo f; fi",
+ "while read -r l; do echo $l; done <<< \"z\"",
+ "for f in a b; do echo $f; done",
+ "time -p true",
+ "echo $(( 3 * 4 ))",
+ "x=1 y=2 env | grep -c '^x=1'",
+ "diff <(echo a) <(echo a) && echo gleich",
+ "echo a &>/dev/null; echo b &>> /dev/null",
+ "{ echo block; }",
+ "echo ok >| /dev/null",
+ "coproc cat; echo co",
+ "select x in a; do break; done </dev/null",
+ "f() { echo f; }; f",
+ "function g() { echo g; }; g",
+ "sudo -u root -- ls / >/dev/null; echo s",
+ "find /etc -maxdepth 0 -exec ls -d {} \\;",
+ "xargs -n1 echo <<< \"a b\"",
+ "env -i PATH=/usr/bin ls -d /",
+ "nice -n 5 ionice -c3 true",
+ "echo ${HOME} \"$(echo \"nested $(echo deep)\")\" `echo bq`",
+ "ls -d /tmp && { cd /tmp; pwd; }",
+ "[ -d /tmp ] && echo klammer",
+ "for ((i=0;i<2;i++)); do echo $i; done",
+ "echo \"a;b|c\" 'd&&e' \\; done",
+ "cat <<EOF\nheredoc zeile\nEOF",
+ "cat <<-ENDE\n\tmit tab\n\tENDE",
+ "if true\nthen echo mehrzeilig\nfi",
+ "ls |\ngrep -c x || true",
+ "echo $((1+2)) ${#HOME} ${HOME:0:1}",
+ "a=1; a+=2; arr[0]=x; echo $a ${arr[0]}",
+ "shopt -s extglob; ls -d /tm@(p|x)",
+ "trap \"echo t\" EXIT; true",
+ "printf \"%s\\n\" a b | while read -r x; do echo \"<$x>\"; done",
+ "cd /tmp; ls >/dev/null 2>&1 & wait",
+ "test -n \"$HOME\" && echo test",
+ "! false && echo nicht"
+]
+fehlalarme = []
+for c in VALID_BASH:
+    rc, out = try_cmd(c)
+    if "✗" in out:
+        fehlalarme.append((c, out.strip().splitlines()[:3]))
+check(f"{len(VALID_BASH)} gültige bash-Befehle ohne Fehlalarm", not fehlalarme, repr(fehlalarme[:3]))
+rc, out = try_cmd("git comit -m x")
+check("git-Tippfehler wird erklärt", "commit" in out and "^^^^^" in out or not shutil.which("git"), out)
+
 # ── Weitergabe an bash (Kompatibilität) ──
 r = subprocess.run(HAMSTER.split() + ["-c", "echo $0; exit 3"], capture_output=True, text=True, env=ENVIRON)
 check("-c läuft in bash", r.stdout.strip() == "bash" and r.returncode == 3, r.stdout)
@@ -131,6 +191,54 @@ for _ in range(3):
 run(" echo geheim")
 hist = open(os.path.join(HOME, ".hamster_history")).read()
 check("Verlauf ohne Duplikate/Leerzeichen-Befehle", hist.count("+echo doppelt") == 1 and "geheim" not in hist, hist[-300:])
+
+# Verlaufserweiterung wie in bash
+run("echo eins zwei drei")
+out = run("echo !$")
+check("!$ = letztes Wort", "\r\ndrei\r\n" in out, out)
+out = run("!!")
+check("!! = letzter Befehl", "echo drei" in out and "\r\ndrei\r\n" in out, out)
+out = run("^drei^vier")
+check("^alt^neu", "vier" in out, out)
+out = run("!echo")
+check("!text", "vier" in out, out)
+run("echo alpha beta")
+p.send("echo ")
+p.send("\x1b.")
+time.sleep(0.5)
+out = run("")
+check("Alt+. fügt letztes Wort ein", "\r\nbeta\r\n" in out, out)
+# Ordnername allein → hineinwechseln
+run("cd /usr/share")
+run("..")
+out = run("pwd")
+check("'..' wechselt den Ordner", "\r\n/usr\r\n" in out, out)
+run("cd " + TMP)
+# Mehrzeilige Blöcke wie in fish
+p.send("if true\r")
+time.sleep(0.4)
+p.send("then echo im-block\r")
+time.sleep(0.4)
+out = run("fi")
+check("if … fi über mehrere Zeilen", "im-block" in out, out)
+# Funktionen mit _ (zoxide, conda ...) bleiben erhalten, PROMPT_COMMAND läuft
+run("__tool_x() { echo TOOL-OK; }; tool() { __tool_x; }")
+out = run("tool")
+check("Hilfsfunktionen mit __ bleiben erhalten", "TOOL-OK" in out, out)
+run("PROMPT_COMMAND='echo PC-LAEUFT >> " + os.path.join(TMP, "pc.txt") + "'")
+run("true")
+check("PROMPT_COMMAND läuft nach Befehlen", os.path.exists(os.path.join(TMP, "pc.txt")), "")
+run("PROMPT_COMMAND=")
+# Tab-Vervollständigung aller Wörter über bash-completion
+if os.path.exists("/usr/share/bash-completion/bash_completion") and shutil.which("git"):
+    p.send("git chec\t")
+    time.sleep(2)
+    out = run("--help >/dev/null; echo FERTIG", 1.5)
+    check("Tab vervollständigt Unterbefehle (git chec → checkout)", "checkout" in out, out)
+    p.send("ls --hum\t")
+    time.sleep(2)
+    out = run(" / >/dev/null; echo FERTIG2", 1.5)
+    check("Tab vervollständigt Optionen (ls --hum → --human-readable)", "--human-readable" in out, out)
 
 p.send("sleep 30\r")
 time.sleep(1)

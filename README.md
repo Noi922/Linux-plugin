@@ -76,19 +76,34 @@ Erkannt werden unbekannte Befehle (mit Paket-Vorschlag), nicht geschlossene `"` 
 ```
 Dazu gibt es verständliche Hinweise zu: Datei nicht gefunden (mit Namensvorschlag), keine Berechtigung, Festplatte voll, DNS- und Netzwerkfehler, apt, git, belegte Ports, Segfault, OOM-Kill und mehr.
 
-**Vervollständigung wie bei fish:**
-- Grauer Vorschlag aus dem Verlauf, übernehmen mit `→` oder `Strg+E`
-- `Tab` für Befehle, Dateien, Ordner (bei `cd` nur Ordner), `$VARIABLEN`, Unterbefehle von git, apt, docker, systemctl, pip, npm und cargo, git-Branches
-- Farben beim Tippen: Befehl grün = existiert, **rot = gibt es nicht**
-- Endet eine Zeile mit `|`, `&&`, `||` oder `\`, geht es in der nächsten Zeile weiter
-- Dauert ein Befehl 5 Sekunden oder länger, zeigt der Prompt die Laufzeit an (`⏱ 1m 12s`)
+**Vervollständigung für jedes Wort:**
+- `Tab` vervollständigt Befehle, Unterbefehle, Optionen und Argumente für alle Programme, die bash-completion kennt. Das sind über 800, zum Beispiel git, apt, systemctl, docker, ssh, tar, kill und pip.
+  Beispiele: `git chec` → `checkout`, `ls --hum` → `--human-readable`, `systemctl res` → `restart`, `ssh -o` → alle SSH-Optionen.
+- Auch Dateien und Ordner (bei `cd` nur Ordner), `$VARIABLEN` und git-Branches werden vervollständigt.
+- Ein grauer Vorschlag aus dem Verlauf erscheint beim Tippen. Übernehmen mit `→` oder `Strg+E`.
+- `↑` durchsucht den Verlauf nach dem, was du schon getippt hast.
+
+**Farben für jedes Wort beim Tippen:**
+- Befehle grün, **unbekannte Befehle rot**
+- Schlüsselwörter (if, for, do …) lila, Unterbefehle (`git commit`) blau
+- Optionen türkis, Strings gelb, `$VARIABLEN` rosa, Zahlen und Platzhalter (`*.txt`) eigene Farben
+- Vorhandene Dateien und Ordner sind unterstrichen. Fehlende Ordner bei `cd` und fehlende Eingabedateien bei `<` sind rot.
+
+**Komfort wie in fish:**
+- Endet eine Zeile mit `|`, `&&` oder `\`, geht die Eingabe einfach in der nächsten Zeile weiter. Dasselbe gilt für Blöcke wie `if … fi`, `for … done` und Here-Documents.
+- Ein Ordnername allein wechselt in den Ordner, zum Beispiel `..` oder `/etc/`.
+- Dauert ein Befehl 5 Sekunden oder länger, zeigt der Prompt die Laufzeit an (`⏱ 1m 12s`).
 - Der Verlauf speichert keine direkten Wiederholungen. Befehle mit einem Leerzeichen am Anfang landen gar nicht im Verlauf.
 
 ## Kompatibel mit deinen Programmen
 
 hamster führt jeden Befehl in **echter bash** aus. Deshalb funktioniert alles wie gewohnt:
 
-- Deine `~/.bashrc` und `~/.profile` werden geladen, mit Aliasen, Funktionen und `PATH`
+- hamster versteht die komplette bash-Syntax: `2>&1`, `>&2`, `&>>`, `[[ … ]]`, `(( … ))`, Arrays, `case`, Here-Documents, `<<<`, `<(…)`, `$(…)`, `sudo`, `timeout`, `find -exec` und mehr. Es gibt keine Fehlalarme bei gültigen Befehlen. Das wird bei jedem Push mit 48 Beispielen getestet.
+- Verlaufserweiterung wie in bash: `sudo !!`, `!$`, `!*`, `!-2`, `!text`, `^alt^neu`. `Alt+.` fügt das letzte Wort des vorigen Befehls ein.
+- Deine `~/.bashrc` und `~/.profile` werden geladen, mit Aliasen, Funktionen und `PATH`.
+- Tools, die sich in bash einklinken, funktionieren: zoxide, direnv, conda, nvm, pyenv, kubectl-Vervollständigung und `PROMPT_COMMAND`.
+- Wenn [starship](https://starship.rs) installiert ist, nutzt hamster dessen Prompt.
 - `source venv/bin/activate`, `export`, `cd`, Funktionen und Variablen bleiben bis zum nächsten Befehl erhalten
 - Programme sehen ein echtes Terminal: Farben und Fortschrittsbalken von apt, pip, git und gcc bleiben
 - Vollbild-Programme laufen ganz normal: vim, nano, less, htop, top, tmux, ssh, mc …
@@ -104,6 +119,8 @@ hamster führt jeden Befehl in **echter bash** aus. Deshalb funktioniert alles w
 | `→` / `Strg+E` | grauen Vorschlag übernehmen |
 | `Alt+→` | ein Wort vom Vorschlag übernehmen |
 | `Strg+R` | im Verlauf suchen |
+| `↑` | Verlauf nach dem bisher Getippten durchsuchen |
+| `Alt+.` | letztes Wort des vorigen Befehls einfügen |
 | `Strg+Z` | Programm anhalten (`fg` / `bg` / `jobs`) |
 | `Strg+D` | beenden |
 
@@ -114,7 +131,15 @@ Eingebaute Befehle: `help`, `history`, `reload`, `jobs`, `fg`, `bg`, `cd`, `exit
 alias gs='git status'
 export EDITOR=nano
 ```
-Umgebungsvariablen: `HAMSTER_NO_BASHRC=1` lädt die `~/.bashrc` nicht, `HAMSTER_QUIET=1` schaltet die Begrüßung ab.
+Umgebungsvariablen:
+
+| Variable | Wirkung |
+|---|---|
+| `HAMSTER_NO_BASHRC=1` | `~/.bashrc` nicht laden |
+| `HAMSTER_QUIET=1` | keine Begrüßung |
+| `HAMSTER_PROMPT=builtin` | eigenen Prompt statt starship verwenden |
+| `HAMSTER_NO_BASH_COMPLETION=1` | bash-completion nicht verwenden |
+| `HAMSTER_NO_PROMPT_COMMAND=1` | `PROMPT_COMMAND` nicht ausführen |
 
 ## Entwicklung
 

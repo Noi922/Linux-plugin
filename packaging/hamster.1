@@ -34,6 +34,12 @@ grauen Vorschlag übernehmen
 .B Strg+R
 im Verlauf suchen
 .TP
+.B ↑
+Verlauf nach dem bisher Getippten durchsuchen
+.TP
+.B Alt+.
+letztes Wort des vorigen Befehls einfügen
+.TP
 .B Strg+Z
 Programm anhalten (weiter mit \fBfg\fR oder \fBbg\fR, Liste mit \fBjobs\fR)
 .SH EINGEBAUTE BEFEHLE
@@ -52,6 +58,15 @@ Verlauf
 .TP
 .B HAMSTER_QUIET=1
 keine Begrüßung
+.TP
+.B HAMSTER_PROMPT=builtin
+eigenen Prompt statt starship verwenden
+.TP
+.B HAMSTER_NO_BASH_COMPLETION=1
+bash-completion nicht verwenden
+.TP
+.B HAMSTER_NO_PROMPT_COMMAND=1
+PROMPT_COMMAND nicht ausführen
 .SH SIEHE AUCH
 .BR bash (1),
 .BR chsh (1)

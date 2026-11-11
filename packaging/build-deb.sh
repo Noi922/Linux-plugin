@@ -26,7 +26,7 @@ Package: hamster
 Version: $VERSION
 Architecture: all
 Maintainer: Noi922 <Noi922@users.noreply.github.com>
-Depends: python3 (>= 3.8), python3-prompt-toolkit (>= 3.0), bash
+Depends: python3 (>= 3.8), python3-prompt-toolkit (>= 3.0), bash, bash-completion
 Recommends: command-not-found
 Section: shells
 Priority: optional
